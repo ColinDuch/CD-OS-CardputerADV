@@ -24,6 +24,9 @@ void app_main(void)
     };
     gpio_config(&cfg_bl);
 
+    bool allume = false;
+    gpio_set_level(PIN_RETRO, allume);
+
     int etat_precedent = gpio_get_level(PIN_BOUTON);
 
     gpio_set_level(PIN_RETRO, 0);
@@ -33,10 +36,11 @@ void app_main(void)
         if (etat != etat_precedent){
             if (etat == 0) {
                 ESP_LOGI(TAG, "Bouton pressé");
-                gpio_set_level(PIN_RETRO, 1);
+                allume = !allume;
+                gpio_set_level(PIN_RETRO, allume);
+                ESP_LOGI(TAG, "Rétroéclairage %s", allume ? "allumé" : "éteint");
             }else {
                 ESP_LOGI(TAG, "Bouton relaché");
-                gpio_set_level(PIN_RETRO, 0);
             }
         }
         etat_precedent = etat;

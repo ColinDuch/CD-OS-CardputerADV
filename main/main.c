@@ -5,12 +5,52 @@
 #include "esp_log.h"
 
 #define PIN_BOUTON GPIO_NUM_0
-#define PIN_RETRO GPIO_NUM_38
+#define PIN_RETRO  GPIO_NUM_38
 
 static const char *TAG = "main";
 
+// NOUVEAU : la tâche du bouton, avec la boucle qui était dans app_main
+static void tache_bouton(void *arg)
+{
+    int etat_precedent = gpio_get_level(PIN_BOUTON);
+    int pourcentage = 0;
+
+    while (1) {
+        int etat = gpio_get_level(PIN_BOUTON);
+        if (etat != etat_precedent) {
+            if (etat == 0) {
+                ESP_LOGI(TAG, "Bouton pressé");
+
+                pourcentage = (pourcentage + 25) % 125;
+                int valeur = pourcentage * 255 / 100;
+
+                ESP_LOGI(TAG, "Luminosité : %d %% (valeur %d)", pourcentage, valeur);
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, valeur);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+            } else {
+                ESP_LOGI(TAG, "Bouton relâché");
+            }
+        }
+        etat_precedent = etat;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+// TODO 1 : écrire la tâche "battement", qui affiche un message chaque seconde
+//          avec un compteur (comme à l'étape 1)
+static void tache_battement(void *arg)
+{
+    int compteur = 0;
+    while(1) {
+        ESP_LOGI(TAG, "Compteur : %d", compteur);
+        compteur ++;
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 void app_main(void)
 {
+    // Configuration du matériel (inchangée)
     gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << PIN_BOUTON,
         .mode = GPIO_MODE_INPUT,
@@ -37,24 +77,10 @@ void app_main(void)
     };
     ledc_channel_config(&canal);
 
-    int etat_precedent = gpio_get_level(PIN_BOUTON);
-    int pourcentage = 0;
+    // NOUVEAU : création des tâches
+    xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
+    // TODO 2 : créer la tâche "battement", avec une priorité plus basse que le bouton
+    xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);
 
-    while(1) {
-        int etat = gpio_get_level(PIN_BOUTON); // donne 0 ou 1
-        if (etat != etat_precedent){
-            if (etat == 0) {
-                ESP_LOGI(TAG, "Bouton pressé");
-                pourcentage = (pourcentage + 25) % 125;     // pas de 25 %, 0, 25, 50, 75, 100 puis de nouveau 0
-                int valeur = pourcentage * 255 / 100;   // conversion pour la luminosité 
-                ESP_LOGI(TAG, "Luminosité est : %d %% (valeur %d)", pourcentage, valeur);
-                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, valeur);
-                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-            }else {
-                ESP_LOGI(TAG, "Bouton relaché");
-            }
-        }
-        etat_precedent = etat;
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
+    ESP_LOGI(TAG, "Tâches créées, fin de app_main");
 }

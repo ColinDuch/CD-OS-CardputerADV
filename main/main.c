@@ -1,6 +1,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_log.h"
@@ -11,6 +12,14 @@
 static const char *TAG = "main";
 
 static QueueHandle_t s_file_luminosite;
+
+typedef struct {
+    int luminosite;
+    int nb_appuis;
+} etat_systeme_t;
+
+static etat_systeme_t s_etat;
+static SemaphoreHandle_t s_mutex_etat;
 
 static void tache_bouton(void *arg)
 {
@@ -29,8 +38,12 @@ static void tache_bouton(void *arg)
                 ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, valeur);
                 ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 
-                xQueueSend(s_file_luminosite, &pourcentage, 0);
+                xSemaphoreTake(s_mutex_etat, portMAX_DELAY);
+                s_etat.luminosite = pourcentage;
+                s_etat.nb_appuis ++;
+                xSemaphoreGive(s_mutex_etat);
 
+                xQueueSend(s_file_luminosite, &pourcentage, 0);
             } else {
                 ESP_LOGI(TAG, "Bouton relâché");
             }
@@ -45,7 +58,11 @@ static void tache_battement(void *arg)
     (void)arg;
     int compteur = 0;
     while (1) {
-        ESP_LOGI(TAG, "Compteur : %d", compteur);
+        etat_systeme_t copie;
+        xSemaphoreTake(s_mutex_etat, portMAX_DELAY);
+        copie = s_etat;
+        xSemaphoreGive(s_mutex_etat);
+        ESP_LOGI(TAG, "Battement %d | luminosité : %d %% | appuis : %d", compteur, copie.luminosite, copie.nb_appuis);
         compteur++;
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -91,6 +108,7 @@ void app_main(void)
     ledc_channel_config(&canal);
 
     s_file_luminosite = xQueueCreate(5, sizeof(int));
+    s_mutex_etat = xSemaphoreCreateMutex();
 
     xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
     xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);

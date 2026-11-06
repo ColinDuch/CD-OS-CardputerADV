@@ -39,9 +39,11 @@ static void tache_bouton(void *arg)
                 xSemaphoreTake(s_mutex_etat, portMAX_DELAY);
                 s_etat.luminosite = pourcentage;
                 s_etat.nb_appuis++;
+                int nb_appuis_locale = s_etat.nb_appuis;
                 xSemaphoreGive(s_mutex_etat);
 
                 bus_publier(EVT_LUMINOSITE, pourcentage);
+                bus_publier(EVT_BOUTON_APPUYE, nb_appuis_locale);
 
             } else {
                 ESP_LOGI(TAG, "Bouton relâché");
@@ -79,6 +81,11 @@ static void alerte_luminosite(const evenement_t *evt)
     }
 }
 
+static void journal_appui(const evenement_t * evt)
+{
+    ESP_LOGI(TAG, "Appui n° %d", evt->valeur);
+}
+
 void app_main(void)
 {
     gpio_config_t cfg = {
@@ -112,6 +119,7 @@ void app_main(void)
     ESP_ERROR_CHECK(bus_init());
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, journal_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, alerte_luminosite));
+    ESP_ERROR_CHECK(bus_abonner(EVT_BOUTON_APPUYE, journal_appui));
 
     xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
     xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);

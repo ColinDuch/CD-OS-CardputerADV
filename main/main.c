@@ -1,17 +1,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_log.h"
+#include "bus.h"
 
 #define PIN_BOUTON GPIO_NUM_0
 #define PIN_RETRO  GPIO_NUM_38
 
 static const char *TAG = "main";
-
-static QueueHandle_t s_file_luminosite;
 
 typedef struct {
     int luminosite;
@@ -40,10 +38,11 @@ static void tache_bouton(void *arg)
 
                 xSemaphoreTake(s_mutex_etat, portMAX_DELAY);
                 s_etat.luminosite = pourcentage;
-                s_etat.nb_appuis ++;
+                s_etat.nb_appuis++;
                 xSemaphoreGive(s_mutex_etat);
 
-                xQueueSend(s_file_luminosite, &pourcentage, 0);
+                bus_publier(EVT_LUMINOSITE, pourcentage);
+
             } else {
                 ESP_LOGI(TAG, "Bouton relâché");
             }
@@ -68,14 +67,15 @@ static void tache_battement(void *arg)
     }
 }
 
-static void tache_journal(void *arg)
+static void journal_luminosite(const evenement_t *evt)
 {
-    (void)arg;
-    int pourcentage_recu;
+    ESP_LOGI(TAG, "Nouvelle luminosité : %d %%", evt->valeur);
+}
 
-    while (1) {
-        xQueueReceive(s_file_luminosite, &pourcentage_recu, portMAX_DELAY);
-        ESP_LOGI(TAG, "Nouvelle luminosité : %d %%", pourcentage_recu);
+static void alerte_luminosite(const evenement_t *evt)
+{
+    if (evt->valeur == 100) {
+        ESP_LOGW(TAG, "Luminosité au maximum !");
     }
 }
 
@@ -107,12 +107,14 @@ void app_main(void)
     };
     ledc_channel_config(&canal);
 
-    s_file_luminosite = xQueueCreate(5, sizeof(int));
     s_mutex_etat = xSemaphoreCreateMutex();
+
+    ESP_ERROR_CHECK(bus_init());
+    ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, journal_luminosite));
+    ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, alerte_luminosite));
 
     xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
     xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);
-    xTaskCreate(tache_journal, "journal", 4096, NULL, 3, NULL);
 
     ESP_LOGI(TAG, "Tâches créées, fin de app_main");
 }

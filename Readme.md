@@ -57,7 +57,7 @@ cd-os/
 - [x] **Étape 1 : hello world.** Projet minimal, messages de log, boucle avec `vTaskDelay`.
 - [x] **Étape 2 : GPIO.** Lire le bouton G0, piloter le rétroéclairage.
 - [x] **Étape 3 : tâches FreeRTOS.** Plusieurs tâches en parallèle, priorités.
-- [ ] **Étape 4 : communication entre tâches.** Files de messages, mutex, bus d’événements.
+- [x] **Étape 4 : communication entre tâches.** Files de messages, mutex, bus d’événements.
 - [ ] **Étape 5 : écran sans LVGL.** Bus SPI, pilote ST7789.
 - [ ] **Étape 6 : LVGL.** Interface graphique, widgets, entrées.
 - [ ] **Étape 7 : architecture.** Composants, couche matérielle (HAL), assemblage de l’OS.

@@ -5,6 +5,7 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 #include "bus.h"
+#include "ecran.h"
 
 #define PIN_BOUTON GPIO_NUM_0
 #define PIN_RETRO  GPIO_NUM_38
@@ -113,6 +114,9 @@ void app_main(void)
         .hpoint = 0,
     };
     ledc_channel_config(&canal);
+
+    ESP_ERROR_CHECK(ecran_init());
+    ESP_ERROR_CHECK(ecran_remplir(COULEUR_BLANC));
 
     s_mutex_etat = xSemaphoreCreateMutex();
 

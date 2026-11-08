@@ -6,6 +6,7 @@
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "police8x8.h"
 
 #define ECRAN_SPI SPI2_HOST
 #define PIN_MOSI 35
@@ -145,4 +146,53 @@ esp_err_t ecran_rectangle(int x, int y, int largeur, int hauteur, uint16_t coule
 esp_err_t ecran_remplir(uint16_t couleur)
 {
     return ecran_rectangle(0, 0, ECRAN_LARGEUR, ECRAN_HAUTEUR, couleur);
+}
+
+#define CAR_TAILLE 8
+
+esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond)
+{
+    static uint16_t pixels[CAR_TAILLE * CAR_TAILLE];
+
+    // le caractère doit être entièrement visible 
+    if (x < 0 || y < 0 || x + CAR_TAILLE > ECRAN_LARGEUR || y + CAR_TAILLE > ECRAN_HAUTEUR) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // caractère absent de la police : on affiche : ?
+    unsigned char code = (unsigned char) c;
+    if (code > 127) {
+        code = '?';
+    }
+
+    const uint8_t *motif = police8x8[code];
+
+    xSemaphoreTake(s_mutex_ecran, portMAX_DELAY);
+
+    uint16_t c_texte = inverser_octets(couleur);
+    uint16_t c_fond = inverser_octets(fond);
+
+    for (int l = 0; l < CAR_TAILLE; l++) {
+        for (int col = 0; col < CAR_TAILLE; col++) {
+            if (motif[l] & (1 << col)) {
+                pixels[l * CAR_TAILLE + col] = c_texte;
+            } else {
+                pixels[l * CAR_TAILLE + col] = c_fond;
+            }
+        }
+    }
+
+    esp_lcd_panel_draw_bitmap(s_panel, x, y, (x + CAR_TAILLE), (y + CAR_TAILLE), pixels);
+    xSemaphoreTake(s_fin_envoi, portMAX_DELAY);
+    
+    xSemaphoreGive(s_mutex_ecran);
+    return ESP_OK;
+}
+
+esp_err_t ecran_texte(int x, int y, const char *texte, uint16_t couleur, uint16_t fond)
+{
+    for (int i = 0; texte[i] != '\0'; i++){
+        ecran_caractere(x + i * CAR_TAILLE, y, texte[i], couleur, fond);
+    }
+    return ESP_OK;
 }

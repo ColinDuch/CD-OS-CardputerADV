@@ -14,3 +14,4 @@
 
 esp_err_t ecran_init(void);
 esp_err_t ecran_remplir(uint16_t couleur);
+esp_err_t ecran_rectangle(int x, int y, int largeur, int hauteur, uint16_t couleur);

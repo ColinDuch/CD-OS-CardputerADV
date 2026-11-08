@@ -4,6 +4,8 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_check.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #define ECRAN_SPI SPI2_HOST
 #define PIN_MOSI 35
@@ -16,9 +18,26 @@
 
 static const char *TAG = "ecran";
 static esp_lcd_panel_handle_t s_panel;
+static SemaphoreHandle_t s_fin_envoi;
+
+// appelée par le pilote, en interruption, quand un envoi de pixels est terminé
+static bool fin_envoi(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *donnees, void *ctx) 
+{
+    (void)io;
+    (void)donnees;
+    (void)ctx;
+
+    BaseType_t reveil = pdFALSE;
+    xSemaphoreGiveFromISR(s_fin_envoi, &reveil);
+    return reveil == pdTRUE;
+}
 
 esp_err_t ecran_init(void)
 {
+    s_fin_envoi = xSemaphoreCreateBinary();
+    if (s_fin_envoi == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
     // 1. le bus SPI
     spi_bus_config_t bus = {
         .sclk_io_num = PIN_SCLK,
@@ -40,6 +59,7 @@ esp_err_t ecran_init(void)
         .lcd_param_bits = 8,
         .spi_mode = 0,
         .trans_queue_depth = 10,
+        .on_color_trans_done = fin_envoi,
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)ECRAN_SPI, &io_cfg, &io), TAG, "panel IO");
 
@@ -70,16 +90,48 @@ static uint16_t inverser_octets(uint16_t couleur)
     return (couleur >> 8) | (couleur << 8);
 }
 
-esp_err_t ecran_remplir(uint16_t couleur)
+esp_err_t ecran_rectangle(int x, int y, int largeur, int hauteur, uint16_t couleur)
 {
     static uint16_t ligne[ECRAN_LARGEUR];
 
-    for (int i = 0; i < ECRAN_LARGEUR; i++) {
+    // 1. rogner la partie qui dépasse à gauche ou à droite
+    if (x < 0) {
+        largeur += x;
+        x = 0;
+    }
+
+    if (x + largeur > ECRAN_LARGEUR) {
+        largeur = ECRAN_LARGEUR - x;
+    }
+
+    if (y < 0) {
+        hauteur += y;
+        y = 0;
+    }
+
+    if (y + hauteur > ECRAN_HAUTEUR) {
+        hauteur = ECRAN_HAUTEUR - y;
+    }
+
+
+    // 2. rien de visible : rien à dessiner
+    if (largeur <= 0 || hauteur <= 0) {
+        return ESP_OK;
+    }
+
+    for (int i = 0; i < largeur; i++) {
         ligne[i] = inverser_octets(couleur);
     }
-    for (int y = 0; y < ECRAN_HAUTEUR; y++) {
-        esp_lcd_panel_draw_bitmap(s_panel, 0, y, ECRAN_LARGEUR, y + 1, ligne);
+
+    for (int j = 0; j < hauteur; j++) {
+        esp_lcd_panel_draw_bitmap(s_panel, x, y + j, x + largeur, y + j + 1, ligne);
+        xSemaphoreTake(s_fin_envoi, portMAX_DELAY);
     }
 
     return ESP_OK;
+}
+
+esp_err_t ecran_remplir(uint16_t couleur)
+{
+    return ecran_rectangle(0, 0, ECRAN_LARGEUR, ECRAN_HAUTEUR, couleur);
 }

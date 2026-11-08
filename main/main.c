@@ -116,7 +116,11 @@ void app_main(void)
     ledc_channel_config(&canal);
 
     ESP_ERROR_CHECK(ecran_init());
-    ESP_ERROR_CHECK(ecran_remplir(COULEUR_BLANC));
+    ESP_ERROR_CHECK(ecran_remplir(COULEUR_NOIR));
+    ESP_ERROR_CHECK(ecran_rectangle(10, 10, 60, 40, COULEUR_BLEU));
+    ESP_ERROR_CHECK(ecran_rectangle(10, 100, 60, 40, COULEUR_VERT));
+    ESP_ERROR_CHECK(ecran_rectangle(100, 10, 60, 40, COULEUR_BLANC));
+    ESP_ERROR_CHECK(ecran_rectangle(150, 100, 200, 200, COULEUR_ROUGE));
 
     s_mutex_etat = xSemaphoreCreateMutex();
 

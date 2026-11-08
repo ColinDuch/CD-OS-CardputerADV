@@ -19,6 +19,7 @@
 static const char *TAG = "ecran";
 static esp_lcd_panel_handle_t s_panel;
 static SemaphoreHandle_t s_fin_envoi;
+static SemaphoreHandle_t s_mutex_ecran;
 
 // appelée par le pilote, en interruption, quand un envoi de pixels est terminé
 static bool fin_envoi(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *donnees, void *ctx) 
@@ -38,6 +39,12 @@ esp_err_t ecran_init(void)
     if (s_fin_envoi == NULL) {
         return ESP_ERR_NO_MEM;
     }
+
+    s_mutex_ecran = xSemaphoreCreateMutex();
+    if (s_mutex_ecran == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
     // 1. le bus SPI
     spi_bus_config_t bus = {
         .sclk_io_num = PIN_SCLK,
@@ -119,6 +126,8 @@ esp_err_t ecran_rectangle(int x, int y, int largeur, int hauteur, uint16_t coule
         return ESP_OK;
     }
 
+    xSemaphoreTake(s_mutex_ecran, portMAX_DELAY);
+
     for (int i = 0; i < largeur; i++) {
         ligne[i] = inverser_octets(couleur);
     }
@@ -127,6 +136,8 @@ esp_err_t ecran_rectangle(int x, int y, int largeur, int hauteur, uint16_t coule
         esp_lcd_panel_draw_bitmap(s_panel, x, y + j, x + largeur, y + j + 1, ligne);
         xSemaphoreTake(s_fin_envoi, portMAX_DELAY);
     }
+
+    xSemaphoreGive(s_mutex_ecran);
 
     return ESP_OK;
 }

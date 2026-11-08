@@ -11,6 +11,7 @@
 #define COULEUR_ROUGE 0xF800
 #define COULEUR_VERT 0x07E0
 #define COULEUR_BLEU 0x001F
+#define COULEUR_GRIS 0x7BEF
 
 esp_err_t ecran_init(void);
 esp_err_t ecran_remplir(uint16_t couleur);

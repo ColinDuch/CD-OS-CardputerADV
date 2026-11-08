@@ -76,7 +76,7 @@ Brochage vérifié dans le code de M5GFX (bibliothèque officielle de M5Stack) :
 | Bouton G0 | 0 (actif à l’état bas) |
 
 - **Rétroéclairage :** à 5 kHz, il ne s’allume qu’à 100 %. Utiliser une fréquence PWM de 256 Hz, comme M5Stack.
-- **Seuil du rétroéclairage :** non visible en dessous de environ 38 sur 255 soit environ 15% de luminosité (mesurée à l'oeil).
+- **Seuil du rétroéclairage :** non visible en dessous de environ 25 sur 255 soit environ 10% de luminosité (mesurée à l'oeil avec un contenu contrasté).
 - **Écran :** 240 × 135 en paysage, couleurs inversées, décalage de la zone visible (40, 53) dans la mémoire du contrôleur.
 - **Flash :** 8 Mo, pas de PSRAM.
 

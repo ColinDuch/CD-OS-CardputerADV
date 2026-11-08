@@ -10,6 +10,13 @@
 #define PIN_BOUTON GPIO_NUM_0
 #define PIN_RETRO  GPIO_NUM_38
 
+#define PAS_LUMINOSITE 5
+#define LUMINOSITE_DEPART 10
+#define BARRE_X 20
+#define BARRE_Y 100
+#define BARRE_LARGEUR 200
+#define BARRE_HAUTEUR 20
+
 static const char *TAG = "main";
 
 typedef struct {
@@ -24,7 +31,7 @@ static void tache_bouton(void *arg)
 {
     (void)arg;
     int etat_precedent = gpio_get_level(PIN_BOUTON);
-    int pourcentage = 0;
+    int pourcentage = LUMINOSITE_DEPART;
 
     while (1) {
         int etat = gpio_get_level(PIN_BOUTON);
@@ -32,7 +39,7 @@ static void tache_bouton(void *arg)
             if (etat == 0) {
                 ESP_LOGI(TAG, "Bouton pressé");
 
-                pourcentage = (pourcentage + 25) % 125;
+                pourcentage = (pourcentage + PAS_LUMINOSITE) % (100 + PAS_LUMINOSITE);
                 int valeur = pourcentage * 255 / 100;
                 ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, valeur);
                 ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
@@ -87,6 +94,20 @@ static void journal_appui(const evenement_t * evt)
     ESP_LOGI(TAG, "Appui n° %d", evt->valeur);
 }
 
+// dessine la barre de luminotité, remplie selon le pourcentage (0 à 100)
+static void dessiner_barre(int pourcentage)
+{
+    int rempli = pourcentage * BARRE_LARGEUR / 100;
+
+    ecran_rectangle(BARRE_X, BARRE_Y, rempli, BARRE_HAUTEUR, COULEUR_VERT);
+    ecran_rectangle((BARRE_X + rempli), BARRE_Y, (BARRE_LARGEUR - rempli), BARRE_HAUTEUR, COULEUR_GRIS);
+}
+
+static void afficher_luminosite(const evenement_t *evt)
+{
+    dessiner_barre(evt->valeur);
+}
+
 void app_main(void)
 {
     gpio_config_t cfg = {
@@ -110,24 +131,23 @@ void app_main(void)
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel = LEDC_CHANNEL_0,
         .timer_sel = LEDC_TIMER_0,
-        .duty = 0,
+        .duty = LUMINOSITE_DEPART * 255 / 100,
         .hpoint = 0,
     };
     ledc_channel_config(&canal);
 
     ESP_ERROR_CHECK(ecran_init());
     ESP_ERROR_CHECK(ecran_remplir(COULEUR_NOIR));
-    ESP_ERROR_CHECK(ecran_rectangle(10, 10, 60, 40, COULEUR_BLEU));
-    ESP_ERROR_CHECK(ecran_rectangle(10, 100, 60, 40, COULEUR_VERT));
-    ESP_ERROR_CHECK(ecran_rectangle(100, 10, 60, 40, COULEUR_BLANC));
-    ESP_ERROR_CHECK(ecran_rectangle(150, 100, 200, 200, COULEUR_ROUGE));
+    dessiner_barre(LUMINOSITE_DEPART);
 
+    s_etat.luminosite = LUMINOSITE_DEPART;
     s_mutex_etat = xSemaphoreCreateMutex();
 
     ESP_ERROR_CHECK(bus_init());
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, journal_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, alerte_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_BOUTON_APPUYE, journal_appui));
+    ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, afficher_luminosite));
 
     xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
     xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);

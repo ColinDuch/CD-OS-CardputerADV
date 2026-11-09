@@ -28,6 +28,8 @@ typedef struct {
 
 static etat_systeme_t s_etat;
 static SemaphoreHandle_t s_mutex_etat;
+static lv_obj_t *s_barre;
+static lv_obj_t *s_texte_luminosite;
 
 static void tache_bouton(void *arg)
 {
@@ -107,7 +109,39 @@ static void dessiner_barre(int pourcentage)
 
 static void afficher_luminosite(const evenement_t *evt)
 {
-    dessiner_barre(evt->valeur);
+    interface_verrouiller();
+    lv_bar_set_value(s_barre, evt->valeur, LV_ANIM_ON);
+    lv_label_set_text_fmt(s_texte_luminosite, "%d %%", evt->valeur);
+    interface_deverrouiller();
+}
+
+// crée tous les objets de l'interface. à appeler en tennant le verrou de LVGL
+static void creer_interface(void)
+{
+    lv_obj_t *fond = lv_screen_active();
+    lv_obj_set_style_bg_color(fond, lv_color_black(), 0);
+
+    // le titre 
+    lv_obj_t *titre = lv_label_create(fond);
+    lv_label_set_text(titre, "CD-OS");
+    lv_obj_set_style_text_color(titre, lv_color_white(), 0);
+    lv_obj_align(titre, LV_ALIGN_TOP_MID, 0, 10);
+    
+    // la barre de luminosité
+    s_barre = lv_bar_create(fond);
+    lv_obj_set_size(s_barre, BARRE_LARGEUR, BARRE_HAUTEUR);
+    lv_obj_align(s_barre, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_bar_set_range(s_barre, 0, 100);
+    lv_bar_set_value(s_barre, LUMINOSITE_DEPART, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_barre, lv_palette_main(LV_PALETTE_GREEN), LV_PART_INDICATOR);
+
+    // le pourcentage, au-dessus de la barre
+    s_texte_luminosite = lv_label_create(fond);
+    lv_obj_set_style_text_color(s_texte_luminosite, lv_color_white(), 0);
+    lv_obj_set_width(s_texte_luminosite, BARRE_LARGEUR);
+    lv_obj_set_style_text_align(s_texte_luminosite, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align_to(s_texte_luminosite, s_barre, LV_ALIGN_OUT_TOP_MID, 0, -5);
+    lv_label_set_text_fmt(s_texte_luminosite, "%d %%", LUMINOSITE_DEPART);
 }
 
 void app_main(void)
@@ -142,13 +176,7 @@ void app_main(void)
     ESP_ERROR_CHECK(interface_init());
 
     interface_verrouiller();
-    lv_obj_t *fond = lv_screen_active();
-    lv_obj_set_style_bg_color(fond, lv_color_black(), 0);
-
-    lv_obj_t *etiquette = lv_label_create(fond);
-    lv_label_set_text(etiquette, "Bonjour LVGL !");
-    lv_obj_set_style_text_color(etiquette, lv_color_white(), 0);
-    lv_obj_center(etiquette);
+    creer_interface();
     interface_deverrouiller();
 
     s_etat.luminosite = LUMINOSITE_DEPART;
@@ -158,7 +186,7 @@ void app_main(void)
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, journal_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, alerte_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_BOUTON_APPUYE, journal_appui));
-    // ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, afficher_luminosite));
+    ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, afficher_luminosite));
 
     xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
     xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);

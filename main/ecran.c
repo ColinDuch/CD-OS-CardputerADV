@@ -53,7 +53,7 @@ esp_err_t ecran_init(void)
         .miso_io_num = -1,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = ECRAN_LARGEUR * sizeof(uint16_t),
+        .max_transfer_sz = ECRAN_LARGEUR * 20 * sizeof(uint16_t),
     };
     ESP_RETURN_ON_ERROR(spi_bus_initialize(ECRAN_SPI, &bus, SPI_DMA_CH_AUTO), TAG, "bus SPI");
 
@@ -204,5 +204,14 @@ esp_err_t ecran_texte(int x, int y, const char *texte, uint16_t couleur, uint16_
     for (int i = 0; texte[i] != '\0'; i++){
         ecran_caractere(x + i * CAR_TAILLE * echelle, y, texte[i], couleur, fond, echelle);
     }
+    return ESP_OK;
+}
+
+esp_err_t ecran_envoyer_pixels(int x_debut, int y_debut, int x_fin, int y_fin, const uint16_t *pixels)
+{
+    xSemaphoreTake(s_mutex_ecran, portMAX_DELAY);
+    esp_lcd_panel_draw_bitmap(s_panel, x_debut, y_debut, x_fin, y_fin, pixels);
+    xSemaphoreTake(s_fin_envoi, portMAX_DELAY);
+    xSemaphoreGive(s_mutex_ecran);
     return ESP_OK;
 }

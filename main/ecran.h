@@ -18,3 +18,4 @@ esp_err_t ecran_remplir(uint16_t couleur);
 esp_err_t ecran_rectangle(int x, int y, int largeur, int hauteur, uint16_t couleur);
 esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond, int echelle);
 esp_err_t ecran_texte(int x, int y, const char *texte, uint16_t couleur, uint16_t fond, int echelle);
+esp_err_t ecran_envoyer_pixels(int x_debut, int y_debut, int x_fin, int y_fin, const uint16_t *pixels);

@@ -6,6 +6,8 @@
 #include "esp_log.h"
 #include "bus.h"
 #include "ecran.h"
+#include "interface.h"
+#include "lvgl.h"
 
 #define PIN_BOUTON GPIO_NUM_0
 #define PIN_RETRO  GPIO_NUM_38
@@ -137,9 +139,17 @@ void app_main(void)
     ledc_channel_config(&canal);
 
     ESP_ERROR_CHECK(ecran_init());
-    ESP_ERROR_CHECK(ecran_remplir(COULEUR_NOIR));
-    dessiner_barre(LUMINOSITE_DEPART);
-    ESP_ERROR_CHECK(ecran_texte(10, 10, "Bonjour Cardputer", COULEUR_ROUGE, COULEUR_NOIR, 2));
+    ESP_ERROR_CHECK(interface_init());
+
+    interface_verrouiller();
+    lv_obj_t *fond = lv_screen_active();
+    lv_obj_set_style_bg_color(fond, lv_color_black(), 0);
+
+    lv_obj_t *etiquette = lv_label_create(fond);
+    lv_label_set_text(etiquette, "Bonjour LVGL !");
+    lv_obj_set_style_text_color(etiquette, lv_color_white(), 0);
+    lv_obj_center(etiquette);
+    interface_deverrouiller();
 
     s_etat.luminosite = LUMINOSITE_DEPART;
     s_mutex_etat = xSemaphoreCreateMutex();
@@ -148,7 +158,7 @@ void app_main(void)
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, journal_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, alerte_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_BOUTON_APPUYE, journal_appui));
-    ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, afficher_luminosite));
+    // ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, afficher_luminosite));
 
     xTaskCreate(tache_bouton, "bouton", 4096, NULL, 5, NULL);
     xTaskCreate(tache_battement, "battement", 4096, NULL, 2, NULL);

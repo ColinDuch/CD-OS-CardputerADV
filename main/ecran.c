@@ -149,18 +149,26 @@ esp_err_t ecran_remplir(uint16_t couleur)
 }
 
 #define CAR_TAILLE 8
+#define ECHELLE_MAX 4
 
-esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond)
+esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond, int echelle)
 {
-    static uint16_t pixels[CAR_TAILLE * CAR_TAILLE];
+    static uint16_t pixels[(CAR_TAILLE * CAR_TAILLE) * (CAR_TAILLE * ECHELLE_MAX)];
+
+    if (echelle < 1 || echelle > ECHELLE_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // le coté du caractère à l'écran, en pixels
+    int taille = CAR_TAILLE * echelle;
 
     // le caractère doit être entièrement visible 
-    if (x < 0 || y < 0 || x + CAR_TAILLE > ECRAN_LARGEUR || y + CAR_TAILLE > ECRAN_HAUTEUR) {
+    if (x < 0 || y < 0 || x + taille > ECRAN_LARGEUR || y + taille > ECRAN_HAUTEUR) {
         return ESP_ERR_INVALID_ARG;
     }
 
     // caractère absent de la police : on affiche : ?
-    unsigned char code = (unsigned char) c;
+    unsigned char code = (unsigned char)c;
     if (code > 127) {
         code = '?';
     }
@@ -172,27 +180,29 @@ esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond)
     uint16_t c_texte = inverser_octets(couleur);
     uint16_t c_fond = inverser_octets(fond);
 
-    for (int l = 0; l < CAR_TAILLE; l++) {
-        for (int col = 0; col < CAR_TAILLE; col++) {
-            if (motif[l] & (1 << col)) {
-                pixels[l * CAR_TAILLE + col] = c_texte;
+    for (int l = 0; l < taille; l++) {
+        for (int col = 0; col < taille; col++) {
+            int l_police = l / echelle;
+            int col_police = col / echelle;
+            if (motif[l_police] & (1 << col_police)) {
+                pixels[l * taille + col] = c_texte;
             } else {
-                pixels[l * CAR_TAILLE + col] = c_fond;
+                pixels[l * taille + col] = c_fond;
             }
         }
     }
 
-    esp_lcd_panel_draw_bitmap(s_panel, x, y, (x + CAR_TAILLE), (y + CAR_TAILLE), pixels);
+    esp_lcd_panel_draw_bitmap(s_panel, x, y, (x + taille), (y + taille), pixels);
     xSemaphoreTake(s_fin_envoi, portMAX_DELAY);
     
     xSemaphoreGive(s_mutex_ecran);
     return ESP_OK;
 }
 
-esp_err_t ecran_texte(int x, int y, const char *texte, uint16_t couleur, uint16_t fond)
+esp_err_t ecran_texte(int x, int y, const char *texte, uint16_t couleur, uint16_t fond, int echelle)
 {
     for (int i = 0; texte[i] != '\0'; i++){
-        ecran_caractere(x + i * CAR_TAILLE, y, texte[i], couleur, fond);
+        ecran_caractere(x + i * CAR_TAILLE * echelle, y, texte[i], couleur, fond, echelle);
     }
     return ESP_OK;
 }

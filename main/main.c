@@ -139,7 +139,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ecran_init());
     ESP_ERROR_CHECK(ecran_remplir(COULEUR_NOIR));
     dessiner_barre(LUMINOSITE_DEPART);
-    ESP_ERROR_CHECK(ecran_texte(10, 10, "Bonjour Cardputer", COULEUR_ROUGE, COULEUR_NOIR));
+    ESP_ERROR_CHECK(ecran_texte(10, 10, "Bonjour Cardputer", COULEUR_ROUGE, COULEUR_NOIR, 2));
 
     s_etat.luminosite = LUMINOSITE_DEPART;
     s_mutex_etat = xSemaphoreCreateMutex();

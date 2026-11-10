@@ -1,0 +1,2 @@
+# Réglages personnalisés du projet (le reste garde les valeurs par défaut)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y

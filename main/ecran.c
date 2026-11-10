@@ -153,7 +153,7 @@ esp_err_t ecran_remplir(uint16_t couleur)
 
 esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond, int echelle)
 {
-    static uint16_t pixels[(CAR_TAILLE * CAR_TAILLE) * (CAR_TAILLE * ECHELLE_MAX)];
+    static uint16_t pixels[(CAR_TAILLE * ECHELLE_MAX) * (CAR_TAILLE * ECHELLE_MAX)];
 
     if (echelle < 1 || echelle > ECHELLE_MAX) {
         return ESP_ERR_INVALID_ARG;
@@ -192,7 +192,7 @@ esp_err_t ecran_caractere(int x, int y, char c, uint16_t couleur, uint16_t fond,
         }
     }
 
-    esp_lcd_panel_draw_bitmap(s_panel, x, y, (x + taille), (y + taille), pixels);
+    esp_lcd_panel_draw_bitmap(s_panel, x, y, x + taille, y + taille, pixels);
     xSemaphoreTake(s_fin_envoi, portMAX_DELAY);
     
     xSemaphoreGive(s_mutex_ecran);

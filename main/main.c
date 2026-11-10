@@ -14,10 +14,9 @@
 
 #define PAS_LUMINOSITE 5
 #define LUMINOSITE_DEPART 10
-#define BARRE_X 20
-#define BARRE_Y 100
 #define BARRE_LARGEUR 200
 #define BARRE_HAUTEUR 20
+#define APPUI_LONG_MS 500
 
 static const char *TAG = "main";
 
@@ -30,35 +29,36 @@ static etat_systeme_t s_etat;
 static SemaphoreHandle_t s_mutex_etat;
 static lv_obj_t *s_barre;
 static lv_obj_t *s_texte_luminosite;
+static int s_luminosite = LUMINOSITE_DEPART;
 
 static void tache_bouton(void *arg)
 {
     (void)arg;
     int etat_precedent = gpio_get_level(PIN_BOUTON);
-    int pourcentage = LUMINOSITE_DEPART;
+    TickType_t debut_appui = 0;
 
     while (1) {
         int etat = gpio_get_level(PIN_BOUTON);
         if (etat != etat_precedent) {
             if (etat == 0) {
-                ESP_LOGI(TAG, "Bouton pressé");
+                debut_appui = xTaskGetTickCount();
+            } else {
+                TickType_t duree_ticks = xTaskGetTickCount() - debut_appui;
+                uint32_t duree_ms = duree_ticks * portTICK_PERIOD_MS;
 
-                pourcentage = (pourcentage + PAS_LUMINOSITE) % (100 + PAS_LUMINOSITE);
-                int valeur = pourcentage * 255 / 100;
-                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, valeur);
-                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+                if (duree_ms >= APPUI_LONG_MS) {
+                    interface_envoyer_touche(LV_KEY_ENTER);
+                } else {
+                    interface_envoyer_touche(LV_KEY_NEXT);
+                }
 
+                // compter l'appui, puis l'annoncer sur le bus
                 xSemaphoreTake(s_mutex_etat, portMAX_DELAY);
-                s_etat.luminosite = pourcentage;
                 s_etat.nb_appuis++;
                 int nb_appuis_locale = s_etat.nb_appuis;
                 xSemaphoreGive(s_mutex_etat);
 
-                bus_publier(EVT_LUMINOSITE, pourcentage);
                 bus_publier(EVT_BOUTON_APPUYE, nb_appuis_locale);
-
-            } else {
-                ESP_LOGI(TAG, "Bouton relâché");
             }
         }
         etat_precedent = etat;
@@ -93,18 +93,9 @@ static void alerte_luminosite(const evenement_t *evt)
     }
 }
 
-static void journal_appui(const evenement_t * evt)
+static void journal_appui(const evenement_t *evt)
 {
     ESP_LOGI(TAG, "Appui n° %d", evt->valeur);
-}
-
-// dessine la barre de luminotité, remplie selon le pourcentage (0 à 100)
-static void dessiner_barre(int pourcentage)
-{
-    int rempli = pourcentage * BARRE_LARGEUR / 100;
-
-    ecran_rectangle(BARRE_X, BARRE_Y, rempli, BARRE_HAUTEUR, COULEUR_VERT);
-    ecran_rectangle((BARRE_X + rempli), BARRE_Y, (BARRE_LARGEUR - rempli), BARRE_HAUTEUR, COULEUR_GRIS);
 }
 
 static void afficher_luminosite(const evenement_t *evt)
@@ -115,18 +106,52 @@ static void afficher_luminosite(const evenement_t *evt)
     interface_deverrouiller();
 }
 
-// crée tous les objets de l'interface. à appeler en tennant le verrou de LVGL
+// applique une luminosité : rétroéclairage, état partagé, et événement sur le bus
+static void regler_luminosite(int pourcentage)
+{
+    int valeur = pourcentage * 255 / 100;
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, valeur);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+
+    xSemaphoreTake(s_mutex_etat, portMAX_DELAY);
+    s_etat.luminosite = pourcentage;
+    xSemaphoreGive(s_mutex_etat);
+
+    bus_publier(EVT_LUMINOSITE, pourcentage);
+}
+
+static void clic_moins(lv_event_t *e)
+{
+    (void)e;
+    s_luminosite -= PAS_LUMINOSITE;
+    if (s_luminosite < 0) {
+        s_luminosite = 0;
+    }
+    regler_luminosite(s_luminosite);
+}
+
+static void clic_plus(lv_event_t *e)
+{
+    (void)e;
+    s_luminosite += PAS_LUMINOSITE;
+    if (s_luminosite > 100) {
+        s_luminosite = 100;
+    }
+    regler_luminosite(s_luminosite);
+}
+
+// crée tous les objets de l'interface, à appeler en tenant le verrou de LVGL
 static void creer_interface(void)
 {
     lv_obj_t *fond = lv_screen_active();
     lv_obj_set_style_bg_color(fond, lv_color_black(), 0);
 
-    // le titre 
+    // le titre
     lv_obj_t *titre = lv_label_create(fond);
     lv_label_set_text(titre, "CD-OS");
     lv_obj_set_style_text_color(titre, lv_color_white(), 0);
     lv_obj_align(titre, LV_ALIGN_TOP_MID, 0, 10);
-    
+
     // la barre de luminosité
     s_barre = lv_bar_create(fond);
     lv_obj_set_size(s_barre, BARRE_LARGEUR, BARRE_HAUTEUR);
@@ -142,6 +167,26 @@ static void creer_interface(void)
     lv_obj_set_style_text_align(s_texte_luminosite, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align_to(s_texte_luminosite, s_barre, LV_ALIGN_OUT_TOP_MID, 0, -5);
     lv_label_set_text_fmt(s_texte_luminosite, "%d %%", LUMINOSITE_DEPART);
+
+    // le bouton "-", à gauche
+    lv_obj_t *bouton_moins = lv_button_create(fond);
+    lv_obj_set_size(bouton_moins, 50, 30);
+    lv_obj_align(bouton_moins, LV_ALIGN_LEFT_MID, 20, 0);
+    lv_obj_add_event_cb(bouton_moins, clic_moins, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *texte_moins = lv_label_create(bouton_moins);
+    lv_label_set_text(texte_moins, "-");
+    lv_obj_center(texte_moins);
+
+    // le bouton "+", à droite
+    lv_obj_t *bouton_plus = lv_button_create(fond);
+    lv_obj_set_size(bouton_plus, 50, 30);
+    lv_obj_align(bouton_plus, LV_ALIGN_RIGHT_MID, -20, 0);
+    lv_obj_add_event_cb(bouton_plus, clic_plus, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *texte_plus = lv_label_create(bouton_plus);
+    lv_label_set_text(texte_plus, "+");
+    lv_obj_center(texte_plus);
 }
 
 void app_main(void)
@@ -172,6 +217,16 @@ void app_main(void)
     };
     ledc_channel_config(&canal);
 
+    // état partagé et bus : créés avant toutes les tâches qui les utilisent
+    s_etat.luminosite = LUMINOSITE_DEPART;
+    s_mutex_etat = xSemaphoreCreateMutex();
+    if (s_mutex_etat == NULL) {
+        ESP_LOGE(TAG, "Impossible de créer le mutex de l'état");
+        return;
+    }
+    ESP_ERROR_CHECK(bus_init());
+
+    // écran et interface
     ESP_ERROR_CHECK(ecran_init());
     ESP_ERROR_CHECK(interface_init());
 
@@ -179,10 +234,7 @@ void app_main(void)
     creer_interface();
     interface_deverrouiller();
 
-    s_etat.luminosite = LUMINOSITE_DEPART;
-    s_mutex_etat = xSemaphoreCreateMutex();
-
-    ESP_ERROR_CHECK(bus_init());
+    // abonnements, avant la création des tâches qui publient
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, journal_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_LUMINOSITE, alerte_luminosite));
     ESP_ERROR_CHECK(bus_abonner(EVT_BOUTON_APPUYE, journal_appui));

@@ -1,27 +1,18 @@
 # CD-OS
 
-Un système d’exploitation fait maison pour appareils à base d’ESP32-S3, écrit en C avec ESP-IDF et FreeRTOS.
+Un système d’exploitation fait maison pour le M5Stack Cardputer ADV (ESP32-S3), écrit en C avec ESP-IDF, FreeRTOS et LVGL.
 
 Le projet est construit étape par étape, dans un but d’apprentissage : chaque brique (tâches, événements, pilotes, interface) est écrite et comprise avant de passer à la suivante.
 
-## Matériel
-
-| Appareil | Rôle | Outils | État |
-|---|---|---|---|
-| M5Stack Cardputer ADV | Plateforme de développement | ESP-IDF (`idf.py`) | En cours |
-| LILYGO T-Watch Ultra | Cible finale (montre) | PlatformIO (à confirmer) | Plus tard |
-
-Organisation prévue : deux OS avec une base commune. Le code indépendant du matériel (bus d’événements, services, apps communes) sera partagé, chaque appareil gardant ses pilotes, son interface et ses apps spécifiques.
-
 ## Fonctionnalités actuelles
 
-- **Bouton G0** lu par scrutation toutes les 20 ms, avec détection des changements d’état.
-- **Rétroéclairage** réglé en PWM (LEDC, 256 Hz) : chaque appui augmente la luminosité par pas de 5 %, de 0 à 100 %.
-- **Tâches FreeRTOS** : lecture du bouton, battement de cœur (journal chaque seconde), distribution du bus.
+- **Bouton G0** lu par scrutation toutes les 20 ms. Appui court : élément suivant. Appui long (≥ 500 ms) : valider.
+- **Rétroéclairage** réglé en PWM (LEDC, 256 Hz), de 0 à 100 % par pas de 5 %.
+- **Tâches FreeRTOS** : lecture du bouton, battement de cœur (journal chaque seconde), distribution du bus, LVGL.
 - **Bus d’événements** (publication / abonnement) : `EVT_LUMINOSITE`, `EVT_BOUTON_APPUYE`.
 - **État partagé** (`s_etat`) protégé par un mutex.
-- **Pilote d’écran maison** (ST7789 via `esp_lcd`) : remplissage, rectangles avec rognage, caractères et texte avec facteur d’échelle (1 à 4).
-- **Barre de luminosité** à l’écran, redessinée à chaque événement `EVT_LUMINOSITE`.
+- **Pilote d’écran maison** (ST7789 via `esp_lcd`) : remplissage, rectangles avec rognage, texte bitmap avec facteur d’échelle, envoi brut de pixels.
+- **Interface LVGL** branchée sur ce pilote : titre, barre de luminosité animée avec son pourcentage, boutons « - » et « + » navigables avec G0.
 
 ## Prérequis
 
@@ -42,7 +33,7 @@ get_idf
 
 ```
 idf.py set-target esp32s3              # une seule fois, à la création du projet
-idf.py build                           # compiler
+idf.py build                           # compiler (télécharge LVGL au premier build)
 idf.py -p /dev/ttyACM0 flash monitor   # flasher puis afficher les messages
 idf.py menuconfig                      # modifier la configuration (sdkconfig)
 ```
@@ -67,40 +58,66 @@ Compiler au moins une fois, puis recharger la fenêtre. Ne pas activer clangd en
 
 ```
 cd-os/
-├── CMakeLists.txt        # projet ESP-IDF
-├── sdkconfig.defaults    # réglages personnalisés (flash 8 Mo)
-├── sdkconfig             # configuration complète (générée, à conserver)
-├── .clang-format         # style du code
+├── CMakeLists.txt          # projet ESP-IDF
+├── sdkconfig.defaults      # réglages personnalisés (flash 8 Mo)
+├── sdkconfig               # configuration complète (générée, à conserver)
+├── dependencies.lock       # version exacte de LVGL (à conserver)
+├── .clang-format           # style du code
 ├── main/
-│   ├── CMakeLists.txt    # liste des sources : main.c, bus.c, ecran.c
-│   ├── main.c            # app_main, tâches, abonnés du bus, barre de luminosité
-│   ├── bus.h / bus.c     # bus d'événements (file + tâche de distribution)
-│   ├── ecran.h / ecran.c # pilote d'écran : SPI, ST7789, dessin, texte
-│   └── police8x8.h       # police bitmap 8 × 8 (ASCII)
-└── build/                # fichiers compilés (généré, ignoré par Git)
+│   ├── CMakeLists.txt      # sources : main.c, bus.c, ecran.c, interface.c
+│   ├── idf_component.yml   # dépendance : lvgl/lvgl ~9.2.0
+│   ├── main.c              # app_main, tâches, abonnés du bus, création de l'interface
+│   ├── bus.h / bus.c       # bus d'événements (file + tâche de distribution)
+│   ├── ecran.h / ecran.c   # pilote d'écran : SPI, ST7789, dessin, texte
+│   ├── interface.h / .c    # LVGL : tampon, envoi, horloge, clavier, tâche, verrou
+│   └── police8x8.h         # police bitmap 8 × 8 (ASCII)
+├── managed_components/     # LVGL téléchargé (généré, ignoré par Git)
+└── build/                  # fichiers compilés (généré, ignoré par Git)
 ```
 
 ## Architecture
 
+**Les entrées :**
+
 ```
-tâche bouton ── bus_publier ──▶ [ file du bus ] ──▶ tâche de distribution
-                                                     │
-                                       appelle les abonnés concernés
-                                                     │
-                     ┌───────────────────┬───────────┴───────────┬──────────────────────┐
-                     ▼                   ▼                       ▼                      ▼
-            journal_luminosite   alerte_luminosite      afficher_luminosite      journal_appui
+tâche bouton ── court / long ──▶ [ file des touches ] ──▶ lire_touches() ──▶ LVGL (groupe, focus)
+                                                                                  │ clic
+                                                                                  ▼
+                                                              clic_moins() / clic_plus()
+                                                                                  │
+                                                                       regler_luminosite()
+                                                                                  │
+                                                                  bus_publier(EVT_LUMINOSITE)
 ```
 
-Règles retenues :
+**Les événements :**
+
+```
+bus_publier ──▶ [ file du bus ] ──▶ tâche de distribution ──▶ abonnés concernés
+                                                               ├── journal_luminosite
+                                                               ├── alerte_luminosite
+                                                               ├── afficher_luminosite (barre + texte, sous le verrou LVGL)
+                                                               └── journal_appui
+```
+
+**L’affichage :**
+
+```
+LVGL ── dessine une bande de 20 lignes ──▶ envoyer_zone() ──▶ ecran_envoyer_pixels() ──▶ ST7789
+```
+
+**Priorités des tâches** (plus le nombre est grand, plus la tâche est prioritaire) : bouton 5, bus 4, LVGL 3, battement 2, `app_main` 1.
+
+## Règles retenues
 
 - Une tâche qui attend doit toujours rendre la main à FreeRTOS (`vTaskDelay`, attente d’une file ou d’un sémaphore).
-- Priorités : plus le nombre est grand, plus la tâche est prioritaire. Bouton 5, bus 4, battement 2, `app_main` 1.
-- Files et mutex sont créés **avant** les tâches qui les utilisent (préemption dès `xTaskCreate`).
+- Files, mutex et bus sont créés **avant** les tâches qui les utilisent (préemption dès `xTaskCreate`).
 - Sections critiques aussi courtes que possible ; on copie sous le mutex, on affiche après.
 - Les abonnés du bus s’exécutent dans la tâche du bus : ils doivent rester courts, sans `vTaskDelay`.
 - On s’abonne uniquement au démarrage (la liste des abonnés n’est pas protégée par un mutex).
-- L’écran est protégé par un mutex : on peut dessiner depuis n’importe quelle tâche.
+- L’écran est protégé par un mutex. Depuis LVGL, tout l’affichage passe par lui : on ne dessine plus directement avec `ecran_rectangle` ou `ecran_texte`.
+- Toute modification de l’interface hors de la tâche LVGL se fait entre `interface_verrouiller()` et `interface_deverrouiller()`.
+- Les fonctions d’événement LVGL (clics) s’exécutent **déjà** sous le verrou : ne jamais y appeler `interface_verrouiller()`.
 
 ## Feuille de route
 
@@ -108,13 +125,17 @@ Règles retenues :
 - [x] **Étape 2 : GPIO.** Lecture du bouton G0, sortie GPIO, PWM avec le LEDC.
 - [x] **Étape 3 : tâches FreeRTOS.** Plusieurs tâches en parallèle, priorités, préemption.
 - [x] **Étape 4 : communication entre tâches.** Files de messages, mutex, bus d’événements.
-- [ ] Partie 4 : sortir le bus dans son propre composant (reportée à l’étape 7).
+  - [ ] Partie 4 : sortir le bus dans son propre composant (reportée à l’étape 7).
 - [x] **Étape 5 : écran sans LVGL.** Bus SPI, pilote ST7789, rectangles, texte, mutex d’écran.
-- [ ] **Étape 6 : LVGL.** Interface graphique, widgets, entrées.
+- [ ] **Étape 6 : LVGL.**
+  - [x] Partie 1 : brancher LVGL sur le pilote d’écran.
+  - [x] Partie 2 : barre de luminosité et texte, mis à jour par le bus.
+  - [x] Partie 3 : navigation au bouton G0 (groupe, focus, clics).
+  - [ ] Suite : écrans multiples, menus, lanceur d’applications.
 - [ ] **Étape 7 : architecture.** Composants, couche matérielle (HAL), assemblage de l’OS.
-- [ ] Ensuite : clavier (I2C), carte SD, Wi-Fi, BLE, audio, portage sur la T-Watch Ultra.
+- [ ] Ensuite : clavier (I2C), carte SD, Wi-Fi, BLE, audio.
 
-Idées en attente : retour à la ligne et défilement du texte, texte transparent, accents (police `font8x8_latin`), seuil minimal de luminosité.
+Idées en attente : retour à la ligne et défilement du texte du pilote maison, texte transparent, accents (police `font8x8_latin` ou police LVGL générée), seuil minimal de luminosité, double tampon LVGL.
 
 ## Notes matérielles (Cardputer ADV)
 
@@ -132,7 +153,7 @@ Brochage vérifié dans le code de M5GFX (bibliothèque officielle de M5Stack) :
 - **Seuil de luminosité :** contenu contrasté visible dès environ 10 % (valeur 25 sur 255). Écran non initialisé : visible vers 15 % (valeur 38).
 - **Écran :** 240 × 135 en paysage, couleurs inversées, `swap_xy` + miroir horizontal, décalage de la zone visible (40, 53) dans la mémoire du contrôleur.
 - **Couleurs RGB565 :** 5 bits rouge, 6 bits vert, 5 bits bleu. Octets à inverser avant l’envoi (l’ESP32 est petit-boutiste, le ST7789 attend l’octet fort en premier).
-- **Mémoire :** flash de 8 Mo (`CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y`), pas de PSRAM. La T-Watch Ultra a 16 Mo de flash et 8 Mo de PSRAM.
+- **Mémoire :** flash de 8 Mo (`CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y`), pas de PSRAM. Environ 300 Ko de RAM interne disponible.
 
 ## Sauvegarde et restauration du Cardputer
 
@@ -152,6 +173,7 @@ esptool.py -p /dev/ttyACM0 write_flash 0 sauvegarde_cardputer.bin
 ## Crédits
 
 - Police `police8x8.h` : font8x8 de Daniel Hepper, domaine public, d’après les polices VGA d’IBM.
+- Interface graphique : [LVGL](https://lvgl.io), licence MIT.
 
 ## Références
 
